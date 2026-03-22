@@ -1,0 +1,608 @@
+openapi: 3.0.0
+info:
+  title: Smart Airport Ride Pooling System API
+  version: 1.0.0
+  description: A comprehensive API for airport ride pooling with real-time matching and dynamic pricing
+  contact:
+    name: API Support
+    email: support@airportpooling.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000
+    description: Development server
+
+paths:
+  /api/auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - password
+                - phone
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 50
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  minLength: 6
+                phone:
+                  type: string
+                  pattern: '^[6-9]\d{9}$'
+                role:
+                  type: string
+                  enum: [passenger, driver, admin]
+                  default: passenger
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      token:
+                        type: string
+        '400':
+          description: Validation error or user already exists
+        '429':
+          description: Too many registration attempts
+
+  /api/auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/User'
+                      token:
+                        type: string
+        '401':
+          description: Invalid credentials
+        '429':
+          description: Too many login attempts
+
+  /api/rides/request:
+    post:
+      tags:
+        - Rides
+      summary: Create a new ride request
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RideRequest'
+      responses:
+        '201':
+          description: Ride request created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      ride:
+                        $ref: '#/components/schemas/Ride'
+                      pricing:
+                        type: object
+        '401':
+          description: Authentication required
+        '429':
+          description: Too many ride requests
+
+  /api/rides/estimate:
+    post:
+      tags:
+        - Rides
+      summary: Get price estimate without creating a ride
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - pickup
+                - destination
+                - passengers
+                - luggage
+              properties:
+                pickup:
+                  type: object
+                  required:
+                    - address
+                    - coordinates
+                  properties:
+                    address:
+                      type: string
+                    coordinates:
+                      type: array
+                      items:
+                        type: number
+                      minItems: 2
+                      maxItems: 2
+                destination:
+                  type: object
+                  required:
+                    - airportCode
+                    - name
+                    - coordinates
+                  properties:
+                    airportCode:
+                      type: string
+                      enum: [BOM, DEL, BLR, HYD, MAA]
+                    name:
+                      type: string
+                    coordinates:
+                      type: array
+                      items:
+                        type: number
+                      minItems: 2
+                      maxItems: 2
+                passengers:
+                  type: integer
+                  minimum: 1
+                  maximum: 6
+                luggage:
+                  type: integer
+                  minimum: 0
+                  maximum: 5
+                isPool:
+                  type: boolean
+                  default: true
+      responses:
+        '200':
+          description: Price estimate calculated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      estimate:
+                        type: object
+                      surge:
+                        type: object
+        '429':
+          description: Too many estimate requests
+
+  /api/admin/pools:
+    get:
+      tags:
+        - Admin
+      summary: List all active pools
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: airportCode
+          in: query
+          schema:
+            type: string
+            enum: [BOM, DEL, BLR, HYD, MAA]
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [forming, locked, assigned]
+      responses:
+        '200':
+          description: Active pools retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      pools:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Pool'
+                      pagination:
+                        type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+
+  /api/admin/analytics:
+    get:
+      tags:
+        - Admin
+      summary: Get KPIs and analytics
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: [1h, 24h, 7d, 30d]
+            default: 24h
+      responses:
+        '200':
+          description: Analytics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: object
+                    properties:
+                      kpis:
+                        type: object
+                      charts:
+                        type: object
+        '401':
+          description: Authentication required
+        '403':
+          description: Admin access required
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        phone:
+          type: string
+        role:
+          type: string
+          enum: [passenger, driver, admin]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        lastLogin:
+          type: string
+          format: date-time
+
+    Ride:
+      type: object
+      properties:
+        _id:
+          type: string
+        userId:
+          type: string
+        pickup:
+          type: object
+          properties:
+            address:
+              type: string
+            coordinates:
+              type: array
+              items:
+                type: number
+        destination:
+          type: object
+          properties:
+            airportCode:
+              type: string
+            name:
+              type: string
+            coordinates:
+              type: array
+              items:
+                type: number
+        flightNumber:
+          type: string
+        scheduledTime:
+          type: string
+          format: date-time
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 6
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 5
+        status:
+          type: string
+          enum: [requested, matched, assigned, in_progress, completed, cancelled]
+        pricing:
+          type: object
+          properties:
+            baseFare:
+              type: number
+            surgeMultiplier:
+              type: number
+            luggageFee:
+              type: number
+            poolDiscount:
+              type: number
+            total:
+              type: number
+        isPool:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    RideRequest:
+      type: object
+      required:
+        - pickup
+        - destination
+        - flightNumber
+        - scheduledTime
+        - passengers
+        - luggage
+      properties:
+        pickup:
+          type: object
+          required:
+            - address
+            - coordinates
+          properties:
+            address:
+              type: string
+              maxLength: 200
+            coordinates:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+        destination:
+          type: object
+          required:
+            - airportCode
+            - name
+            - coordinates
+          properties:
+            airportCode:
+              type: string
+              enum: [BOM, DEL, BLR, HYD, MAA]
+            name:
+              type: string
+            coordinates:
+              type: array
+              items:
+                type: number
+              minItems: 2
+              maxItems: 2
+        flightNumber:
+          type: string
+          pattern: '^[A-Z]{2}\d{3,4}$'
+        scheduledTime:
+          type: string
+          format: date-time
+        passengers:
+          type: integer
+          minimum: 1
+          maximum: 6
+        luggage:
+          type: integer
+          minimum: 0
+          maximum: 5
+        isPool:
+          type: boolean
+          default: true
+        detourTolerance:
+          type: integer
+          minimum: 0
+          maximum: 60
+          default: 15
+        specialRequests:
+          type: string
+          maxLength: 500
+
+    Pool:
+      type: object
+      properties:
+        _id:
+          type: string
+        airportCode:
+          type: string
+        rides:
+          type: array
+          items:
+            type: string
+        driverId:
+          type: string
+        status:
+          type: string
+          enum: [forming, locked, assigned, completed]
+        totalSeats:
+          type: integer
+        totalLuggage:
+          type: integer
+        routeOrder:
+          type: array
+          items:
+            type: string
+        totalDeviation:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    Driver:
+      type: object
+      properties:
+        _id:
+          type: string
+        name:
+          type: string
+        phone:
+          type: string
+        vehicle:
+          type: object
+          properties:
+            type:
+              type: string
+            plate:
+              type: string
+            maxSeats:
+              type: integer
+            maxLuggage:
+              type: integer
+            make:
+              type: string
+            model:
+              type: string
+            color:
+              type: string
+            year:
+              type: integer
+        status:
+          type: string
+          enum: [available, busy, offline]
+        rating:
+          type: number
+        totalTrips:
+          type: integer
+        verified:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    SurgeConfig:
+      type: object
+      properties:
+        _id:
+          type: string
+        airportCode:
+          type: string
+        multiplier:
+          type: number
+        isManualOverride:
+          type: boolean
+        autoSurgeEnabled:
+          type: boolean
+        demandThreshold:
+          type: number
+        lastCalculatedAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        code:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+              value:
+                type: any
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Rides
+    description: Ride booking and management
+  - name: Admin
+    description: Administrative operations
